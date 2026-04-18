@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import models
 from app.database import SessionLocal, engine
-from app.routers import exercises, workouts, routines
+from app.routers import exercises, workouts, routines, data
 
 # 建立資料表（開發階段用，正式環境會用 Alembic migration）
 models.Base.metadata.create_all(bind=engine)
@@ -69,6 +69,7 @@ app.add_middleware(
 app.include_router(exercises.router)
 app.include_router(workouts.router)
 app.include_router(routines.router)
+app.include_router(data.router)
 
 
 # ========== 前端靜態檔案 ==========
