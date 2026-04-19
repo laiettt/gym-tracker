@@ -1,10 +1,14 @@
 """FastAPI application entry point."""
+import base64
+import os
+import secrets
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app import models
 from app.database import SessionLocal, engine
@@ -186,6 +190,41 @@ app = FastAPI(
     description="個人健身記錄 API",
     version="0.1.0",
 )
+
+# ---------- Basic Auth ----------
+# 部署用：設環境變數 GYM_USERNAME / GYM_PASSWORD 之後，整個站（含 API、首頁、靜態檔）
+# 都會要求 HTTP Basic Auth。環境變數未設則完全不擋（給本地開發用）。
+_AUTH_USER = os.environ.get("GYM_USERNAME", "").strip()
+_AUTH_PASS = os.environ.get("GYM_PASSWORD", "").strip()
+
+
+class BasicAuthMiddleware(BaseHTTPMiddleware):
+    """整站 HTTP Basic Auth。health check 保持公開方便 uptime 監測。"""
+    async def dispatch(self, request: Request, call_next):
+        if not _AUTH_USER or not _AUTH_PASS:
+            return await call_next(request)
+        # health check 免驗
+        if request.url.path == "/api/health":
+            return await call_next(request)
+
+        header = request.headers.get("authorization", "")
+        if header.startswith("Basic "):
+            try:
+                decoded = base64.b64decode(header[6:]).decode("utf-8")
+                user, _, pwd = decoded.partition(":")
+                # 用 compare_digest 避免 timing attack
+                if (secrets.compare_digest(user, _AUTH_USER)
+                        and secrets.compare_digest(pwd, _AUTH_PASS)):
+                    return await call_next(request)
+            except Exception:
+                pass
+        return Response(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="Gym Tracker"'},
+        )
+
+
+app.add_middleware(BasicAuthMiddleware)
 
 # CORS：開發階段預設開放，部署時用 ALLOWED_ORIGINS 環境變數限制
 #   例：ALLOWED_ORIGINS="https://gym-tracker.example.com,https://foo.bar"
