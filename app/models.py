@@ -24,6 +24,7 @@ class Exercise(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True, nullable=False, index=True)
     category = Column(String(50), nullable=True)  # 例：胸、背、腿
+    equipment = Column(String(50), nullable=True)  # 例：Cable、器械、啞鈴、槓鈴
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

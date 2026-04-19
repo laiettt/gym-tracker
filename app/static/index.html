@@ -74,11 +74,25 @@
             <h2 class="font-semibold text-slate-700 mb-3">新增一組</h2>
 
             <label class="block text-xs text-slate-500 mb-1">動作</label>
+            <div class="flex flex-wrap gap-1.5 mb-2">
+                <button type="button"
+                        @click="setCategoryFilter('')"
+                        :class="categoryFilter === '' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'"
+                        class="text-xs px-2.5 py-1 rounded-full">全部</button>
+                <template x-for="c in exerciseCategories()" :key="c">
+                    <button type="button"
+                            @click="setCategoryFilter(c)"
+                            :class="categoryFilter === c ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'"
+                            class="text-xs px-2.5 py-1 rounded-full"
+                            x-text="c"></button>
+                </template>
+            </div>
             <select x-model="form.exercise_id"
                     class="w-full border border-slate-200 rounded-lg px-3 py-2 text-base">
                 <option value="">請選擇...</option>
-                <template x-for="ex in exercises" :key="ex.id">
-                    <option :value="ex.id" x-text="ex.name"></option>
+                <template x-for="ex in filteredExercises()" :key="ex.id">
+                    <option :value="ex.id"
+                            x-text="ex.equipment ? `${ex.name}(${ex.equipment})` : ex.name"></option>
                 </template>
             </select>
             <template x-if="form.exercise_id && lastTimeForExercise(parseInt(form.exercise_id))">
@@ -245,14 +259,37 @@
     <section x-show="activeTab === 'exercises'" x-cloak>
         <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
             <h2 class="font-semibold text-slate-700 mb-3">新增動作</h2>
-            <div class="flex gap-2">
-                <input type="text" x-model="newExercise.name" placeholder="例：深蹲"
-                       class="flex-1 border border-slate-200 rounded-lg px-3 py-2">
-                <input type="text" x-model="newExercise.category" placeholder="分類（選填）"
-                       class="w-32 border border-slate-200 rounded-lg px-3 py-2">
+            <div class="space-y-2">
+                <input type="text" x-model="newExercise.name" placeholder="名稱，例：三頭下壓"
+                       class="w-full border border-slate-200 rounded-lg px-3 py-2">
+                <div class="flex gap-2">
+                    <select x-model="newExercise.category"
+                            class="flex-1 border border-slate-200 rounded-lg px-3 py-2 bg-white">
+                        <option value="">肌群（選填）</option>
+                        <template x-for="c in CATEGORY_OPTIONS" :key="c">
+                            <option :value="c" x-text="c"></option>
+                        </template>
+                        <option value="__other__">其他…</option>
+                    </select>
+                    <select x-model="newExercise.equipment"
+                            class="flex-1 border border-slate-200 rounded-lg px-3 py-2 bg-white">
+                        <option value="">器材（選填）</option>
+                        <template x-for="e in EQUIPMENT_OPTIONS" :key="e">
+                            <option :value="e" x-text="e"></option>
+                        </template>
+                        <option value="__other__">其他…</option>
+                    </select>
+                </div>
+                <div class="flex gap-2">
+                    <input x-show="newExercise.category === '__other__'" type="text"
+                           x-model="newExercise.categoryCustom" placeholder="自訂肌群"
+                           class="flex-1 border border-slate-200 rounded-lg px-3 py-2">
+                    <input x-show="newExercise.equipment === '__other__'" type="text"
+                           x-model="newExercise.equipmentCustom" placeholder="自訂器材"
+                           class="flex-1 border border-slate-200 rounded-lg px-3 py-2">
+                </div>
                 <button @click="createExercise()"
-                        class="bg-blue-600 text-white px-4 rounded-lg">新增
-                </button>
+                        class="w-full bg-blue-600 text-white py-2 rounded-lg">新增動作</button>
             </div>
         </div>
 
@@ -273,7 +310,8 @@
                     <li class="py-2">
                         <div class="flex justify-between items-center">
                             <div class="flex-1 min-w-0">
-                                <span class="font-medium text-slate-700" x-text="ex.name"></span>
+                                <span class="font-medium text-slate-700"
+                                      x-text="ex.equipment ? `${ex.name}(${ex.equipment})` : ex.name"></span>
                                 <span x-show="ex.category"
                                       class="ml-2 text-xs bg-slate-100 px-2 py-0.5 rounded"
                                       x-text="ex.category"></span>
@@ -317,9 +355,14 @@
                         :class="chartModal.metric==='estimated_1rm' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'"
                         class="flex-1 py-1.5 rounded text-xs font-medium">推估 1RM</button>
             </div>
-            <div x-show="chartModal.history.length === 0"
-                 class="text-center text-slate-400 py-10 text-sm">尚無歷史資料</div>
-            <canvas id="gymChart" x-show="chartModal.history.length > 0"></canvas>
+            <template x-if="chartModal.show && chartModal.history.length === 0">
+                <div class="text-center text-slate-400 py-10 text-sm">尚無歷史資料</div>
+            </template>
+            <template x-if="chartModal.show && chartModal.history.length > 0">
+                <div class="relative" style="height: 280px;">
+                    <canvas id="gymChart"></canvas>
+                </div>
+            </template>
         </div>
     </div>
 
@@ -345,7 +388,10 @@
             chartModal: {show: false, exerciseId: null, exerciseName: '', history: [], metric: 'max_weight', chart: null},
             currentWorkout: null,
             form: {exercise_id: '', weight: null, reps: null, notes: ''},
-            newExercise: {name: '', category: ''},
+            categoryFilter: '',  // '' = 全部；否則顯示該肌群/部位的動作
+            newExercise: {name: '', category: '', equipment: '', categoryCustom: '', equipmentCustom: ''},
+            CATEGORY_OPTIONS: ['胸', '背', '腿', '肩', '手臂', '核心', '有氧', '全身'],
+            EQUIPMENT_OPTIONS: ['槓鈴', '啞鈴', '器械', 'Cable', '自重', '彈力帶', '壺鈴'],
             toast: {show: false, msg: ''},
             expandedId: null,
             nowTick: Date.now(),  // 每秒更新一次，讓計時器重繪
@@ -508,7 +554,9 @@
                 this.chartModal = {show: true, exerciseId: ex.id, exerciseName: ex.name, history: [], metric: 'max_weight', chart: null};
                 try {
                     this.chartModal.history = await this.api('GET', `/exercises/${ex.id}/history`);
+                    // Alpine x-if 插入 canvas 後，還要等一個 paint frame 才有尺寸
                     await this.$nextTick();
+                    await new Promise(r => setTimeout(r, 30));
                     this.renderChart();
                 } catch (e) {
                     this.showToast('無法載入歷史資料');
@@ -526,7 +574,6 @@
             renderChart() {
                 const canvas = document.getElementById('gymChart');
                 if (!canvas || !this.chartModal.history.length) return;
-                if (this.chartModal.chart) this.chartModal.chart.destroy();
 
                 const epley = (w, r) => (w != null && r != null && r > 0) ? +(w * (1 + r / 30)).toFixed(1) : null;
                 const metric = this.chartModal.metric;
@@ -543,6 +590,18 @@
                     total_volume: '總訓練量 (kg)',
                     estimated_1rm: '推估 1RM (kg)',
                 };
+
+                // 切換指標時：若 canvas 上已有同一個 chart 實例，就地更新資料避免 ctx race。
+                const existing = Chart.getChart(canvas);
+                if (existing) {
+                    existing.data.labels = labels;
+                    existing.data.datasets[0].data = values;
+                    existing.data.datasets[0].label = metricLabels[metric];
+                    existing.update();
+                    this.chartModal.chart = existing;
+                    return;
+                }
+
                 this.chartModal.chart = new Chart(canvas, {
                     type: 'line',
                     data: {
@@ -560,6 +619,8 @@
                     },
                     options: {
                         responsive: true,
+                        maintainAspectRatio: false,
+                        animation: false,
                         plugins: {legend: {display: false}},
                         scales: {
                             x: {ticks: {maxRotation: 45, maxTicksLimit: 8}},
@@ -617,6 +678,28 @@
             exerciseCategory(id) {
                 const ex = this.exercises.find(e => e.id === id);
                 return ex?.category || null;
+            },
+
+            exerciseCategories() {
+                const cats = new Set();
+                for (const ex of this.exercises) {
+                    if (ex.category) cats.add(ex.category);
+                }
+                return [...cats].sort();
+            },
+
+            filteredExercises() {
+                if (!this.categoryFilter) return this.exercises;
+                return this.exercises.filter(e => e.category === this.categoryFilter);
+            },
+
+            setCategoryFilter(c) {
+                this.categoryFilter = c;
+                // 若目前選的動作不在新過濾條件內，清空選擇
+                if (this.form.exercise_id) {
+                    const ex = this.exercises.find(e => e.id === parseInt(this.form.exercise_id));
+                    if (ex && c && ex.category !== c) this.form.exercise_id = '';
+                }
             },
 
             workoutCategories(w) {
@@ -677,7 +760,8 @@
 
             exerciseName(id) {
                 const ex = this.exercises.find(e => e.id === id);
-                return ex ? ex.name : '未知動作';
+                if (!ex) return '未知動作';
+                return ex.equipment ? `${ex.name}(${ex.equipment})` : ex.name;
             },
 
             async addSet() {
@@ -735,9 +819,15 @@
 
             async createExercise() {
                 if (!this.newExercise.name) return;
+                const ne = this.newExercise;
+                const payload = {
+                    name: ne.name,
+                    category: ne.category === '__other__' ? (ne.categoryCustom || null) : (ne.category || null),
+                    equipment: ne.equipment === '__other__' ? (ne.equipmentCustom || null) : (ne.equipment || null),
+                };
                 try {
-                    await this.api('POST', '/exercises', this.newExercise);
-                    this.newExercise = {name: '', category: ''};
+                    await this.api('POST', '/exercises', payload);
+                    this.newExercise = {name: '', category: '', equipment: '', categoryCustom: '', equipmentCustom: ''};
                     await this.loadExercises();
                     this.showToast('已新增動作');
                 } catch (e) {

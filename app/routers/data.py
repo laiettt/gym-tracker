@@ -20,7 +20,7 @@ def export_data(db: Session = Depends(get_db)):
     ex_name = {e.id: e.name for e in exercises}
 
     export_exercises = [
-        schemas.ExerciseCreate(name=e.name, category=e.category, notes=e.notes)
+        schemas.ExerciseCreate(name=e.name, category=e.category, equipment=e.equipment, notes=e.notes)
         for e in exercises
     ]
 

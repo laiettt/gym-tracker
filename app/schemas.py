@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 class ExerciseBase(BaseModel):
     name: str
     category: Optional[str] = None
+    equipment: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -25,6 +26,7 @@ class ExerciseCreate(ExerciseBase):
 class ExerciseUpdate(BaseModel):
     name: Optional[str] = None
     category: Optional[str] = None
+    equipment: Optional[str] = None
     notes: Optional[str] = None
 
 
