@@ -32,6 +32,22 @@ def test_exercise_name_unique(client):
     assert r.status_code >= 400
 
 
+def test_exercise_same_name_different_equipment_allowed(client):
+    """同動作名 + 不同器材應視為不同變體（臥推 × 槓鈴 / 啞鈴）。
+
+    曾經的 bug：create_exercise 只檢查 name，導致同名不同器材被 409 擋掉。
+    """
+    r1 = client.post("/api/exercises", json={"name": "臥推", "equipment": "槓鈴"})
+    assert r1.status_code == 201
+    r2 = client.post("/api/exercises", json={"name": "臥推", "equipment": "啞鈴"})
+    assert r2.status_code == 201
+    assert r1.json()["id"] != r2.json()["id"]
+
+    # 但同 name + 同 equipment 仍該被擋下
+    r3 = client.post("/api/exercises", json={"name": "臥推", "equipment": "槓鈴"})
+    assert r3.status_code == 409
+
+
 def test_exercise_history_empty(client):
     r = client.post("/api/exercises", json={"name": "硬舉"})
     exercise_id = r.json()["id"]

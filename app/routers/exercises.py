@@ -19,11 +19,16 @@ def list_exercises(db: Session = Depends(get_db)):
 @router.post("", response_model=schemas.Exercise, status_code=status.HTTP_201_CREATED)
 def create_exercise(payload: schemas.ExerciseCreate, db: Session = Depends(get_db)):
     """新增一個動作。"""
-    existing = db.query(models.Exercise).filter_by(name=payload.name).first()
+    existing = (
+        db.query(models.Exercise)
+        .filter_by(name=payload.name, equipment=payload.equipment)
+        .first()
+    )
     if existing:
+        equipment_label = payload.equipment or "（未指定器材）"
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Exercise '{payload.name}' already exists",
+            detail=f"Exercise '{payload.name}' × '{equipment_label}' already exists",
         )
     exercise = models.Exercise(**payload.model_dump())
     db.add(exercise)
