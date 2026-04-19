@@ -1,16 +1,22 @@
 """FastAPI application entry point."""
-import base64
 import os
-import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app import models
+from app.auth import (
+    AUTH_COOKIE_NAME,
+    create_session_token,
+    is_auth_enabled,
+    session_seconds,
+    verify_credentials,
+    verify_session_token,
+)
 from app.database import SessionLocal, engine
 from app.routers import exercises, workouts, routines, data, analytics
 
@@ -191,40 +197,43 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# ---------- Basic Auth ----------
-# 部署用：設環境變數 GYM_USERNAME / GYM_PASSWORD 之後，整個站（含 API、首頁、靜態檔）
-# 都會要求 HTTP Basic Auth。環境變數未設則完全不擋（給本地開發用）。
-_AUTH_USER = os.environ.get("GYM_USERNAME", "").strip()
-_AUTH_PASS = os.environ.get("GYM_PASSWORD", "").strip()
+# ---------- Session Auth ----------
+# 有設 GYM_USERNAME + GYM_PASSWORD 就啟用 cookie-based 登入，整站除了
+# /api/health、/login、/logout 都需要有效 session cookie。環境變數未設
+# 則完全不擋（本地開發）。
+#
+# 之前用 HTTP Basic Auth，但手機瀏覽器分頁被回收就會重問帳密（訓練一小時
+# 被問 4-5 次），改成 signed cookie 後登入一次可撐 30 天。
+_AUTH_EXEMPT_PATHS = {"/api/health", "/login", "/logout"}
 
 
-class BasicAuthMiddleware(BaseHTTPMiddleware):
-    """整站 HTTP Basic Auth。health check 保持公開方便 uptime 監測。"""
+def _is_https(request: Request) -> bool:
+    """判斷原始請求是否是 HTTPS。Render / 反向代理會用 X-Forwarded-Proto 轉發。"""
+    if request.url.scheme == "https":
+        return True
+    return request.headers.get("x-forwarded-proto", "").lower() == "https"
+
+
+class SessionAuthMiddleware(BaseHTTPMiddleware):
+    """檢查 session cookie；未登入的 HTML 請求轉到 /login，API 回 401 JSON。"""
     async def dispatch(self, request: Request, call_next):
-        if not _AUTH_USER or not _AUTH_PASS:
+        if not is_auth_enabled():
             return await call_next(request)
-        # health check 免驗
-        if request.url.path == "/api/health":
+        if request.url.path in _AUTH_EXEMPT_PATHS:
             return await call_next(request)
 
-        header = request.headers.get("authorization", "")
-        if header.startswith("Basic "):
-            try:
-                decoded = base64.b64decode(header[6:]).decode("utf-8")
-                user, _, pwd = decoded.partition(":")
-                # 用 compare_digest 避免 timing attack
-                if (secrets.compare_digest(user, _AUTH_USER)
-                        and secrets.compare_digest(pwd, _AUTH_PASS)):
-                    return await call_next(request)
-            except Exception:
-                pass
-        return Response(
-            status_code=401,
-            headers={"WWW-Authenticate": 'Basic realm="Gym Tracker"'},
-        )
+        token = request.cookies.get(AUTH_COOKIE_NAME, "")
+        if verify_session_token(token):
+            return await call_next(request)
+
+        # 瀏覽器請求 HTML 時轉到登入頁；API 用 401 讓前端能處理
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept:
+            return RedirectResponse(url="/login", status_code=302)
+        return JSONResponse({"detail": "unauthorized"}, status_code=401)
 
 
-app.add_middleware(BasicAuthMiddleware)
+app.add_middleware(SessionAuthMiddleware)
 
 # CORS：開發階段預設開放，部署時用 ALLOWED_ORIGINS 環境變數限制
 #   例：ALLOWED_ORIGINS="https://gym-tracker.example.com,https://foo.bar"
@@ -262,6 +271,79 @@ def index():
 
 # 其他靜態檔案（之後若有 css/js 檔）
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+# ========== 登入 / 登出 ==========
+_LOGIN_HTML = """<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>登入 - Gym Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 min-h-screen flex items-center justify-center p-4">
+  <form method="post" action="/login" class="bg-white rounded-lg shadow p-6 w-full max-w-sm space-y-4">
+    <h1 class="text-xl font-bold text-slate-800">💪 Gym Tracker 登入</h1>
+    __ERROR__
+    <label class="block">
+      <span class="text-sm text-slate-600">帳號</span>
+      <input name="username" autocomplete="username" autofocus required
+             class="mt-1 w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+    </label>
+    <label class="block">
+      <span class="text-sm text-slate-600">密碼</span>
+      <input type="password" name="password" autocomplete="current-password" required
+             class="mt-1 w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+    </label>
+    <button class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-medium">登入</button>
+  </form>
+</body>
+</html>
+"""
+
+
+def _render_login(error: str = "", status_code: int = 200) -> HTMLResponse:
+    snippet = (
+        f'<p class="text-sm text-red-600">{error}</p>' if error else ""
+    )
+    return HTMLResponse(_LOGIN_HTML.replace("__ERROR__", snippet), status_code=status_code)
+
+
+@app.get("/login", include_in_schema=False)
+def login_page(request: Request):
+    # 已登入就直接回首頁，避免重複登入
+    if is_auth_enabled() and verify_session_token(request.cookies.get(AUTH_COOKIE_NAME, "")):
+        return RedirectResponse(url="/", status_code=302)
+    return _render_login()
+
+
+@app.post("/login", include_in_schema=False)
+def login(request: Request, username: str = Form(...), password: str = Form(...)):
+    if not is_auth_enabled():
+        # 本地開發未設帳密；沒什麼可登，直接回首頁
+        return RedirectResponse(url="/", status_code=303)
+    if not verify_credentials(username, password):
+        return _render_login(error="帳號或密碼錯誤", status_code=401)
+
+    resp = RedirectResponse(url="/", status_code=303)
+    resp.set_cookie(
+        AUTH_COOKIE_NAME,
+        create_session_token(),
+        max_age=session_seconds(),
+        httponly=True,
+        secure=_is_https(request),
+        samesite="lax",
+        path="/",
+    )
+    return resp
+
+
+@app.post("/logout", include_in_schema=False)
+def logout():
+    resp = RedirectResponse(url="/login", status_code=303)
+    resp.delete_cookie(AUTH_COOKIE_NAME, path="/")
+    return resp
 
 
 @app.get("/api/health", tags=["system"])
