@@ -38,7 +38,7 @@ def create_routine(payload: schemas.RoutineCreate, db: Session = Depends(get_db)
 
 @router.get("/{routine_id}", response_model=schemas.Routine)
 def get_routine(routine_id: int, db: Session = Depends(get_db)):
-    routine = db.query(models.Routine).get(routine_id)
+    routine = db.get(models.Routine, routine_id)
     if not routine:
         raise HTTPException(status_code=404, detail="Routine not found")
     return routine
@@ -46,7 +46,7 @@ def get_routine(routine_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/{routine_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_routine(routine_id: int, db: Session = Depends(get_db)):
-    routine = db.query(models.Routine).get(routine_id)
+    routine = db.get(models.Routine, routine_id)
     if not routine:
         raise HTTPException(status_code=404, detail="Routine not found")
     db.delete(routine)

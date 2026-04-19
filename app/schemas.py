@@ -76,6 +76,10 @@ class WorkoutUpdate(BaseModel):
     routine_id: Optional[int] = None
 
 
+class ReorderSetsRequest(BaseModel):
+    set_ids: List[int]
+
+
 class Workout(WorkoutBase):
     model_config = ConfigDict(from_attributes=True)
 

@@ -1,12 +1,12 @@
 """Workouts API - 訓練記錄的 CRUD。"""
-from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.database import get_db
+from app.models import _utcnow_naive
 
 router = APIRouter(prefix="/api/workouts", tags=["workouts"])
 
@@ -32,7 +32,7 @@ def create_workout(payload: schemas.WorkoutCreate, db: Session = Depends(get_db)
     """建立一次訓練記錄，可同時帶入 sets。"""
     workout_data = payload.model_dump(exclude={"sets"})
     if workout_data.get("date") is None:
-        workout_data["date"] = datetime.utcnow()
+        workout_data["date"] = _utcnow_naive()
 
     workout = models.Workout(**workout_data)
     db.add(workout)
@@ -52,7 +52,7 @@ def create_workout(payload: schemas.WorkoutCreate, db: Session = Depends(get_db)
 
 @router.get("/{workout_id}", response_model=schemas.Workout)
 def get_workout(workout_id: int, db: Session = Depends(get_db)):
-    workout = db.query(models.Workout).get(workout_id)
+    workout = db.get(models.Workout, workout_id)
     if not workout:
         raise HTTPException(status_code=404, detail="Workout not found")
     return workout
@@ -65,7 +65,7 @@ def update_workout(
     db: Session = Depends(get_db),
 ):
     """更新 workout（目前用來存訓練時長 duration_minutes / 備註）。"""
-    workout = db.query(models.Workout).get(workout_id)
+    workout = db.get(models.Workout, workout_id)
     if not workout:
         raise HTTPException(status_code=404, detail="Workout not found")
     for field, value in payload.model_dump(exclude_unset=True).items():
@@ -77,7 +77,7 @@ def update_workout(
 
 @router.delete("/{workout_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_workout(workout_id: int, db: Session = Depends(get_db)):
-    workout = db.query(models.Workout).get(workout_id)
+    workout = db.get(models.Workout, workout_id)
     if not workout:
         raise HTTPException(status_code=404, detail="Workout not found")
     db.delete(workout)
@@ -96,7 +96,7 @@ def add_set_to_workout(
     db: Session = Depends(get_db),
 ):
     """在既有的 workout 加一組記錄。"""
-    workout = db.query(models.Workout).get(workout_id)
+    workout = db.get(models.Workout, workout_id)
     if not workout:
         raise HTTPException(status_code=404, detail="Workout not found")
 
@@ -110,18 +110,17 @@ def add_set_to_workout(
 @router.post("/{workout_id}/sets/reorder", response_model=schemas.Workout)
 def reorder_sets(
     workout_id: int,
-    payload: dict,
+    payload: schemas.ReorderSetsRequest,
     db: Session = Depends(get_db),
 ):
-    """依 payload['set_ids'] 的順序重設 set_number（從 1 開始）。"""
-    set_ids = payload.get("set_ids", [])
-    workout = db.query(models.Workout).get(workout_id)
+    """依 payload.set_ids 的順序重設 set_number（從 1 開始）。"""
+    workout = db.get(models.Workout, workout_id)
     if not workout:
         raise HTTPException(status_code=404, detail="Workout not found")
     existing = {s.id: s for s in workout.sets}
-    if set(existing.keys()) != set(set_ids):
+    if set(existing.keys()) != set(payload.set_ids):
         raise HTTPException(status_code=400, detail="set_ids 必須涵蓋此 workout 所有 set")
-    for i, sid in enumerate(set_ids, start=1):
+    for i, sid in enumerate(payload.set_ids, start=1):
         existing[sid].set_number = i
     db.commit()
     db.refresh(workout)

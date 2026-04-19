@@ -34,7 +34,7 @@ def create_exercise(payload: schemas.ExerciseCreate, db: Session = Depends(get_d
 
 @router.get("/{exercise_id}", response_model=schemas.Exercise)
 def get_exercise(exercise_id: int, db: Session = Depends(get_db)):
-    exercise = db.query(models.Exercise).get(exercise_id)
+    exercise = db.get(models.Exercise, exercise_id)
     if not exercise:
         raise HTTPException(status_code=404, detail="Exercise not found")
     return exercise
@@ -46,7 +46,7 @@ def update_exercise(
     payload: schemas.ExerciseUpdate,
     db: Session = Depends(get_db),
 ):
-    exercise = db.query(models.Exercise).get(exercise_id)
+    exercise = db.get(models.Exercise, exercise_id)
     if not exercise:
         raise HTTPException(status_code=404, detail="Exercise not found")
 
@@ -61,7 +61,7 @@ def update_exercise(
 
 @router.delete("/{exercise_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_exercise(exercise_id: int, db: Session = Depends(get_db)):
-    exercise = db.query(models.Exercise).get(exercise_id)
+    exercise = db.get(models.Exercise, exercise_id)
     if not exercise:
         raise HTTPException(status_code=404, detail="Exercise not found")
     db.delete(exercise)
@@ -74,7 +74,7 @@ def get_exercise_history(exercise_id: int, db: Session = Depends(get_db)):
 
     以每次訓練（workout）為單位聚合：max_weight、total_volume、total_reps。
     """
-    exercise = db.query(models.Exercise).get(exercise_id)
+    exercise = db.get(models.Exercise, exercise_id)
     if not exercise:
         raise HTTPException(status_code=404, detail="Exercise not found")
 
@@ -123,7 +123,7 @@ def get_exercise_prs(exercise_id: int, db: Session = Depends(get_db)):
 
     回傳最大重量那組、以及 Epley 推估 1RM 最高那組。
     """
-    exercise = db.query(models.Exercise).get(exercise_id)
+    exercise = db.get(models.Exercise, exercise_id)
     if not exercise:
         raise HTTPException(status_code=404, detail="Exercise not found")
 

@@ -138,6 +138,18 @@
                     class="w-full bg-blue-600 text-white py-3 rounded-lg font-medium active:bg-blue-700">
                 新增這組
             </button>
+
+            <!-- 組間休息計時器：每次 addSet 成功會自動重設為 00:00，按一下開始 -->
+            <div x-show="currentWorkout" class="mt-3 flex items-center gap-3 bg-slate-50 rounded-lg px-3 py-2">
+                <div class="text-xs text-slate-500">組間休息</div>
+                <div class="flex-1 font-mono text-xl tabular-nums"
+                     :class="restTimer.startedAt ? 'text-blue-600' : 'text-slate-400'"
+                     x-text="restTimerLabel()"></div>
+                <button @click="toggleRestTimer()"
+                        class="text-sm px-3 py-1.5 rounded font-medium"
+                        :class="restTimer.startedAt ? 'bg-red-100 text-red-600 active:bg-red-200' : 'bg-blue-600 text-white active:bg-blue-700'"
+                        x-text="restTimer.startedAt ? '停止' : '開始'"></button>
+            </div>
         </div>
 
         <!-- 今天的訓練 -->
@@ -395,6 +407,7 @@
             toast: {show: false, msg: ''},
             expandedId: null,
             nowTick: Date.now(),  // 每秒更新一次，讓計時器重繪
+            restTimer: {startedAt: null},  // 組間休息計時器；null = 未開始
 
             async init() {
                 await this.checkHealth();
@@ -421,6 +434,20 @@
                 const s = sec % 60;
                 const pad = n => String(n).padStart(2, '0');
                 return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+            },
+
+            toggleRestTimer() {
+                this.restTimer.startedAt = this.restTimer.startedAt ? null : Date.now();
+            },
+
+            restTimerLabel() {
+                void this.nowTick;  // 依賴 nowTick 讓 Alpine 每秒重繪
+                if (!this.restTimer.startedAt) return '00:00';
+                const sec = Math.max(0, Math.floor((Date.now() - this.restTimer.startedAt) / 1000));
+                const m = Math.floor(sec / 60);
+                const s = sec % 60;
+                const pad = n => String(n).padStart(2, '0');
+                return `${pad(m)}:${pad(s)}`;
             },
 
             initSortable(el) {
@@ -800,6 +827,8 @@
                     );
 
                     this.currentWorkout.sets.push(newSet);
+                    // 剛完成一組 → 重設組間休息計時器回 00:00，等使用者按「開始」
+                    this.restTimer.startedAt = null;
                     this.showToast('已記錄 ✓');
                     await this.loadWorkouts();
                 } catch (e) {

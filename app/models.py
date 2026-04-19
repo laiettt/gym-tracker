@@ -7,7 +7,7 @@
 - workouts:         一次訓練記錄
 - sets:             每一組的實際記錄
 """
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, ForeignKey, Text,
@@ -15,6 +15,15 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from app.database import Base
+
+
+def _utcnow_naive() -> datetime:
+    """取代 deprecated 的 datetime.utcnow()。
+
+    保持 naive datetime（tzinfo=None）以維持與既有 DB、前端序列化行為的相容性；
+    前端 parseServerDate() 會替無時區字串補上 Z 當 UTC 處理。
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class Exercise(Base):
@@ -26,7 +35,7 @@ class Exercise(Base):
     category = Column(String(50), nullable=True)  # 例：胸、背、腿
     equipment = Column(String(50), nullable=True)  # 例：Cable、器械、啞鈴、槓鈴
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
 
     sets = relationship("WorkoutSet", back_populates="exercise")
     routine_exercises = relationship("RoutineExercise", back_populates="exercise")
@@ -39,7 +48,7 @@ class Routine(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
 
     routine_exercises = relationship(
         "RoutineExercise",
@@ -70,7 +79,7 @@ class Workout(Base):
     __tablename__ = "workouts"
 
     id = Column(Integer, primary_key=True, index=True)
-    date = Column(DateTime, default=datetime.utcnow, index=True)
+    date = Column(DateTime, default=_utcnow_naive, index=True)
     routine_id = Column(Integer, ForeignKey("routines.id"), nullable=True)
     notes = Column(Text, nullable=True)
     duration_minutes = Column(Integer, nullable=True)
