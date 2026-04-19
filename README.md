@@ -90,9 +90,20 @@ gym-tracker/
 
 目前沒接 Alembic。改 model 後啟動會跑輕量 migration（補欄位、重建 index、重命名舊動作），需要清資料就刪掉 `gym.db` 讓它重建。
 
+## 部署到 Railway
+
+1. 在 Railway 建 project，從 GitHub 匯入這個 repo。
+2. 在同一個 project 加一個 PostgreSQL plugin；Railway 會自動把 `DATABASE_URL` 注入到 web service。
+3. 視需要在 Variables 加：
+   - `ALLOWED_ORIGINS` = 你的前端網址（限制 CORS）
+4. 部署。Railway 會吃 `Procfile` 啟動 `uvicorn`。
+
+首次部署後在 Postgres 是空的，startup 會自動 `create_all` 建表、跑 seed。要把本地 SQLite 資料搬過去，用前端的「匯出」產 JSON，再到部署後的站點「匯入」。
+
+環境變數清單見 `.env.example`。
+
 ## Roadmap
 
 - [ ] 前端「從課表開始訓練」流程
-- [ ] 部署到 Railway + PostgreSQL
 - [ ] 簡易登入（多裝置同步）
 - [ ] 導入 Alembic

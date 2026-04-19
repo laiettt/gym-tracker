@@ -4,6 +4,9 @@ sqlalchemy==2.0.35
 pydantic==2.9.2
 alembic==1.13.3
 
+# 部署到 Postgres 時需要（本地開發用 SQLite 不會用到它）
+psycopg2-binary==2.9.10
+
 # test
 pytest==8.3.3
 httpx==0.27.2

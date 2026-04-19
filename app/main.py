@@ -187,10 +187,17 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# 開發階段開放 CORS
+# CORS：開發階段預設開放，部署時用 ALLOWED_ORIGINS 環境變數限制
+#   例：ALLOWED_ORIGINS="https://gym-tracker.example.com,https://foo.bar"
+import os as _os
+_allowed_origins_env = _os.environ.get("ALLOWED_ORIGINS", "").strip()
+_allowed_origins = (
+    [o.strip() for o in _allowed_origins_env.split(",") if o.strip()]
+    if _allowed_origins_env else ["*"]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
