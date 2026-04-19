@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, ForeignKey, Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 
@@ -27,11 +28,18 @@ def _utcnow_naive() -> datetime:
 
 
 class Exercise(Base):
-    """動作庫。例：深蹲、臥推、硬舉。"""
+    """動作庫。例：深蹲、臥推、硬舉。
+
+    同一個動作名稱允許存在多種器材變體（例：臥推 × 槓鈴 / 啞鈴），
+    故 uniqueness 放在 (name, equipment) 複合鍵上，而非只有 name。
+    """
     __tablename__ = "exercises"
+    __table_args__ = (
+        UniqueConstraint("name", "equipment", name="uq_exercise_name_equipment"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), unique=True, nullable=False, index=True)
+    name = Column(String(100), nullable=False, index=True)
     category = Column(String(50), nullable=True)  # 例：胸、背、腿
     equipment = Column(String(50), nullable=True)  # 例：Cable、器械、啞鈴、槓鈴
     notes = Column(Text, nullable=True)

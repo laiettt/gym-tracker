@@ -54,20 +54,19 @@
             </div>
         </template>
 
-        <div class="bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-xl shadow-sm p-4 mb-4">
-            <div class="flex items-center gap-2 text-xs opacity-90">
-                <span x-text="todayBanner().weekday"></span>
-                <span>·</span>
-                <span x-text="todayBanner().segment + ' ' + todayBanner().time"></span>
-            </div>
-            <div class="text-xl font-semibold mt-0.5" x-text="todayBanner().date"></div>
-            <div class="text-xs opacity-80 mt-1" x-text="todayBanner().week"></div>
-            <div x-show="isTraining()"
-                 class="mt-3 pt-3 border-t border-white/20 flex items-center gap-2">
-                <span class="inline-block w-2 h-2 rounded-full bg-red-400 animate-pulse"></span>
-                <span class="text-sm">訓練中</span>
-                <span class="text-lg font-mono ml-auto" x-text="elapsedLabel"></span>
-            </div>
+        <div class="flex items-center gap-2 text-xs text-slate-500 mb-3 px-1">
+            <span class="font-medium text-slate-700" x-text="todayBanner().date"></span>
+            <span class="text-slate-300">·</span>
+            <span x-text="todayBanner().weekday"></span>
+            <span class="text-slate-300">·</span>
+            <span x-text="todayBanner().week"></span>
+            <template x-if="isTraining()">
+                <span class="ml-auto inline-flex items-center gap-1.5 bg-red-50 text-red-600 px-2 py-0.5 rounded-full">
+                    <span class="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                    <span>訓練中</span>
+                    <span class="font-mono" x-text="elapsedLabel"></span>
+                </span>
+            </template>
         </div>
 
         <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
@@ -199,12 +198,160 @@
     <!-- ====== Tab: 歷史 ====== -->
     <section x-show="activeTab === 'history'" x-cloak>
         <div class="bg-white rounded-xl shadow-sm p-4">
-            <h2 class="font-semibold text-slate-700 mb-3">歷史訓練</h2>
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="font-semibold text-slate-700">歷史訓練</h2>
+                <div class="flex gap-1 text-xs">
+                    <button @click="historyView = 'list'"
+                            :class="historyView === 'list' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'"
+                            class="px-2.5 py-1 rounded">列表</button>
+                    <button @click="historyView = 'calendar'"
+                            :class="historyView === 'calendar' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'"
+                            class="px-2.5 py-1 rounded">月曆</button>
+                </div>
+            </div>
             <div x-show="workouts.length === 0" class="text-sm text-slate-400 text-center py-6">
                 還沒有任何訓練記錄
             </div>
-            <ul class="divide-y divide-slate-100">
-                <template x-for="w in workouts" :key="w.id">
+
+            <!-- 月曆 view -->
+            <div x-show="historyView === 'calendar' && workouts.length > 0" x-cloak>
+                <div class="flex items-center justify-between mb-2">
+                    <button @click="shiftCalendarMonth(-1)" class="text-slate-500 px-2">‹</button>
+                    <div class="font-medium text-slate-700 text-sm" x-text="calendarTitle()"></div>
+                    <button @click="shiftCalendarMonth(1)" class="text-slate-500 px-2">›</button>
+                </div>
+                <div class="grid grid-cols-7 gap-1 text-center text-xs text-slate-400 mb-1">
+                    <div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div><div>日</div>
+                </div>
+                <div class="grid grid-cols-7 gap-1">
+                    <template x-for="(day, idx) in calendarDays()" :key="idx">
+                        <div class="aspect-square flex flex-col items-center justify-center rounded text-xs"
+                             :class="day.inMonth
+                                ? (day.count > 0
+                                    ? (day.isSelected ? 'bg-blue-600 text-white cursor-pointer' : 'bg-blue-50 text-blue-700 cursor-pointer hover:bg-blue-100')
+                                    : 'text-slate-400')
+                                : 'text-slate-300'"
+                             @click="day.count > 0 && (selectedCalendarDate = day.iso)">
+                            <div x-text="day.dayNum"></div>
+                            <div x-show="day.count > 0"
+                                 class="text-[10px] leading-none mt-0.5"
+                                 x-text="day.count + '組'"></div>
+                        </div>
+                    </template>
+                </div>
+                <div class="mt-3 flex gap-3 text-xs text-slate-500">
+                    <span>本月 <span class="text-slate-700 font-medium" x-text="calendarMonthStats().days"></span> 天訓練</span>
+                    <span>共 <span class="text-slate-700 font-medium" x-text="calendarMonthStats().sets"></span> 組</span>
+                    <span>總量 <span class="text-slate-700 font-medium" x-text="Math.round(calendarMonthStats().volume)"></span> kg</span>
+                </div>
+
+                <!-- 月度分析卡片 -->
+                <div x-effect="loadMonthlyAnalytics()"></div>
+                <template x-if="monthlyAnalytics && monthlyAnalytics.total_sets > 0">
+                    <div class="mt-4 border border-slate-200 rounded-xl p-3 bg-white">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="text-sm font-semibold text-slate-700"
+                                 x-text="monthlyAnalytics.is_current_month ? '本月進度' : '月結分析'"></div>
+                            <span class="text-[10px] px-1.5 py-0.5 rounded"
+                                  :class="monthlyAnalytics.is_current_month ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'"
+                                  x-text="monthlyAnalytics.is_current_month ? '進行中' : '已結束'"></span>
+                        </div>
+                        <div class="grid grid-cols-4 gap-2 text-center">
+                            <div>
+                                <div class="text-lg font-semibold text-slate-700" x-text="monthlyAnalytics.training_days"></div>
+                                <div class="text-[10px] text-slate-400">訓練天數</div>
+                            </div>
+                            <div>
+                                <div class="text-lg font-semibold text-slate-700" x-text="monthlyAnalytics.total_sets"></div>
+                                <div class="text-[10px] text-slate-400">總組數</div>
+                            </div>
+                            <div>
+                                <div class="text-lg font-semibold text-slate-700" x-text="Math.round(monthlyAnalytics.total_volume)"></div>
+                                <div class="text-[10px] text-slate-400">總量 kg</div>
+                            </div>
+                            <div>
+                                <div class="text-lg font-semibold"
+                                     :class="monthlyAnalytics.pr_count > 0 ? 'text-amber-600' : 'text-slate-700'"
+                                     x-text="monthlyAnalytics.pr_count"></div>
+                                <div class="text-[10px] text-slate-400">PR 次數</div>
+                            </div>
+                        </div>
+
+                        <template x-if="monthlyAnalytics.volume_delta_pct !== null">
+                            <div class="mt-3 text-xs text-slate-500">
+                                vs 上月總量
+                                <span class="font-mono"
+                                      :class="monthlyAnalytics.volume_delta_pct >= 0 ? 'text-emerald-600' : 'text-red-500'"
+                                      x-text="(monthlyAnalytics.volume_delta_pct >= 0 ? '+' : '') + monthlyAnalytics.volume_delta_pct + '%'"></span>
+                                <span class="text-slate-400"
+                                      x-text="'（' + Math.round(monthlyAnalytics.prev_month_total_volume) + ' → ' + Math.round(monthlyAnalytics.total_volume) + ' kg）'"></span>
+                            </div>
+                        </template>
+
+                        <template x-if="monthlyAnalytics.muscle_groups.length > 0">
+                            <div class="mt-3">
+                                <div class="text-[11px] text-slate-400 mb-1">肌群分布</div>
+                                <div class="flex flex-wrap gap-1">
+                                    <template x-for="g in monthlyAnalytics.muscle_groups" :key="g.category">
+                                        <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                                            <span x-text="g.category"></span>
+                                            <span class="text-slate-400 ml-1" x-text="g.percentage + '%'"></span>
+                                        </span>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+
+                        <template x-if="monthlyAnalytics.top_exercises.length > 0">
+                            <div class="mt-3">
+                                <div class="text-[11px] text-slate-400 mb-1">常練動作 Top 5</div>
+                                <ul class="space-y-0.5 text-xs text-slate-600">
+                                    <template x-for="(e, i) in monthlyAnalytics.top_exercises" :key="e.exercise_id">
+                                        <li class="flex justify-between">
+                                            <span>
+                                                <span class="text-slate-400 mr-1" x-text="(i + 1) + '.'"></span>
+                                                <span x-text="e.exercise_name"></span>
+                                            </span>
+                                            <span class="text-slate-400 font-mono"
+                                                  x-text="e.sets_count + ' 組 · ' + Math.round(e.total_volume) + ' kg'"></span>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </div>
+                        </template>
+
+                        <template x-if="monthlyAnalytics.pr_count > 0">
+                            <div class="mt-3 text-xs">
+                                <span class="text-amber-600 font-medium">🏆 本月 PR：</span>
+                                <span class="text-slate-600" x-text="monthlyAnalytics.pr_exercise_names.join('、')"></span>
+                            </div>
+                        </template>
+
+                        <template x-if="monthlyAnalytics.suggestions && monthlyAnalytics.suggestions.length > 0">
+                            <div class="mt-3 pt-3 border-t border-slate-100">
+                                <div class="text-[11px] text-slate-400 mb-1.5"
+                                     x-text="monthlyAnalytics.is_current_month ? '提醒' : '下月建議'"></div>
+                                <ul class="space-y-1.5">
+                                    <template x-for="(tip, i) in monthlyAnalytics.suggestions" :key="i">
+                                        <li class="flex gap-2 text-xs text-slate-600">
+                                            <span class="text-blue-500 flex-shrink-0">•</span>
+                                            <span x-text="tip"></span>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <div x-show="selectedCalendarDate" class="mt-3 border-t border-slate-100 pt-2 text-xs text-slate-500">
+                    <span x-text="selectedCalendarDate"></span> 的訓練（點其他日期切換）：
+                </div>
+            </div>
+
+            <ul class="divide-y divide-slate-100"
+                :class="historyView === 'calendar' ? 'mt-2' : ''">
+                <template x-for="w in visibleWorkouts()" :key="w.id">
                     <li class="py-3">
                         <div @click="toggleExpand(w.id)" class="cursor-pointer">
                             <div class="flex justify-between items-start">
@@ -346,6 +493,102 @@
         </div>
     </section>
 
+    <!-- ====== 結束訓練分析 Modal ====== -->
+    <div x-show="analysisModal.show" x-cloak
+         class="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4"
+         @click.self="analysisModal.show = false">
+        <div class="bg-white rounded-xl w-full max-w-md shadow-2xl p-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-slate-800">訓練總結</h3>
+                <button @click="analysisModal.show = false" class="text-slate-400 text-xl leading-none px-1">✕</button>
+            </div>
+            <template x-if="analysisModal.data">
+                <div class="space-y-3">
+                    <!-- 本次統計 -->
+                    <div class="grid grid-cols-2 gap-2 text-sm">
+                        <div class="bg-slate-50 rounded p-2">
+                            <div class="text-xs text-slate-400">時長</div>
+                            <div class="font-semibold text-slate-700" x-text="analysisModal.minutes + ' 分鐘'"></div>
+                        </div>
+                        <div class="bg-slate-50 rounded p-2">
+                            <div class="text-xs text-slate-400">總組數</div>
+                            <div class="font-semibold text-slate-700"
+                                 x-text="analysisModal.data.total_sets + ' 組'"></div>
+                        </div>
+                        <div class="bg-slate-50 rounded p-2">
+                            <div class="text-xs text-slate-400">總次數</div>
+                            <div class="font-semibold text-slate-700"
+                                 x-text="analysisModal.data.total_reps + ' 下'"></div>
+                        </div>
+                        <div class="bg-slate-50 rounded p-2">
+                            <div class="text-xs text-slate-400">總訓練量</div>
+                            <div class="font-semibold text-slate-700"
+                                 x-text="Math.round(analysisModal.data.total_volume) + ' kg'"></div>
+                        </div>
+                    </div>
+
+                    <!-- vs. 上次同肌群 -->
+                    <div x-show="analysisModal.data.volume_delta_pct != null"
+                         class="flex items-center justify-between bg-slate-50 rounded p-2 text-sm">
+                        <span class="text-slate-500">vs. 上次同肌群訓練量</span>
+                        <span class="font-semibold"
+                              :class="analysisModal.data.volume_delta_pct >= 0 ? 'text-emerald-600' : 'text-rose-600'"
+                              x-text="volumeDeltaLabel(analysisModal.data.volume_delta_pct)"></span>
+                    </div>
+
+                    <!-- 肌群 tags -->
+                    <div x-show="analysisModal.data.muscle_groups.length" class="flex flex-wrap gap-1">
+                        <template x-for="g in analysisModal.data.muscle_groups" :key="g">
+                            <span class="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded" x-text="g"></span>
+                        </template>
+                    </div>
+
+                    <!-- 各動作 -->
+                    <div class="border-t border-slate-100 pt-2">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="text-xs text-slate-400">各動作表現</div>
+                            <div class="flex gap-1 text-xs">
+                                <span x-show="analysisSummary().pr > 0"
+                                      class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded"
+                                      x-text="'🏆 ' + analysisSummary().pr"></span>
+                                <span x-show="analysisSummary().stagnant > 0"
+                                      class="bg-orange-100 text-orange-700 px-2 py-0.5 rounded"
+                                      x-text="'停滯 ' + analysisSummary().stagnant"></span>
+                                <span x-show="analysisSummary().below > 0"
+                                      class="bg-rose-100 text-rose-700 px-2 py-0.5 rounded"
+                                      x-text="'偏低 ' + analysisSummary().below"></span>
+                            </div>
+                        </div>
+                        <div class="text-xs text-slate-600 bg-slate-50 rounded p-2 mb-2"
+                             x-text="analysisHeadline()"></div>
+                        <ul class="space-y-2">
+                            <template x-for="ea in analysisModal.data.exercises" :key="ea.exercise_id">
+                                <li class="bg-slate-50 rounded p-2">
+                                    <div class="flex items-center justify-between">
+                                        <div class="font-medium text-sm text-slate-700" x-text="ea.exercise_name"></div>
+                                        <div class="text-xs text-slate-500">
+                                            <span x-show="ea.today_max_weight != null"
+                                                  x-text="'本次最大 ' + ea.today_max_weight + 'kg' + (ea.today_max_weight_reps ? ' × ' + ea.today_max_weight_reps : '')"></span>
+                                        </div>
+                                    </div>
+                                    <div x-show="ea.suggestion"
+                                         class="mt-1 text-xs px-2 py-1 rounded"
+                                         :class="ea.is_pr ? 'bg-amber-100 text-amber-700' : (ea.is_stagnant ? 'bg-orange-100 text-orange-700' : (ea.is_below_recent ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'))"
+                                         x-text="ea.suggestion"></div>
+                                </li>
+                            </template>
+                        </ul>
+                    </div>
+
+                    <button @click="confirmEndWorkout()"
+                            class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium mt-2">
+                        確認結束
+                    </button>
+                </div>
+            </template>
+        </div>
+    </div>
+
     <!-- ====== 進步曲線 Modal ====== -->
     <div x-show="chartModal.show" x-cloak
          class="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4"
@@ -398,6 +641,12 @@
             workouts: [],
             exercisePRs: {},   // exercise_id -> ExercisePR
             chartModal: {show: false, exerciseId: null, exerciseName: '', history: [], metric: 'max_weight', chart: null},
+            analysisModal: {show: false, minutes: 0, data: null},
+            historyView: 'list',                      // 'list' | 'calendar'
+            calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+            selectedCalendarDate: null,               // 'YYYY-MM-DD' 或 null（代表看當月全部）
+            monthlyAnalytics: null,                   // 當前月曆月份的分析資料
+            monthlyAnalyticsLoading: false,
             currentWorkout: null,
             form: {exercise_id: '', weight: null, reps: null, notes: ''},
             categoryFilter: '',  // '' = 全部；否則顯示該肌群/部位的動作
@@ -505,15 +754,176 @@
                 const start = this.parseServerDate(this.currentWorkout.date).getTime();
                 const minutes = Math.max(1, Math.round((Date.now() - start) / 60000));
                 try {
-                    const updated = await this.api('PATCH',
+                    // 先寫入訓練時長，分析才能看到
+                    await this.api('PATCH',
                         `/workouts/${this.currentWorkout.id}`,
                         {duration_minutes: minutes});
-                    this.showToast(`訓練結束 · ${minutes} 分鐘 · ${updated.sets.length} 組`);
-                    this.currentWorkout = null;
-                    await this.loadWorkouts();
+                    const analysis = await this.api('GET',
+                        `/workouts/${this.currentWorkout.id}/analysis`);
+                    this.analysisModal = {show: true, minutes, data: analysis};
                 } catch (e) {
                     this.showToast('錯誤：' + e.message);
                 }
+            },
+
+            async confirmEndWorkout() {
+                this.analysisModal.show = false;
+                this.currentWorkout = null;
+                this.restTimer.startedAt = null;
+                await this.loadWorkouts();
+                this.showToast('訓練已結束');
+            },
+
+            volumeDeltaLabel(pct) {
+                if (pct == null) return '—';
+                const sign = pct >= 0 ? '+' : '';
+                return `${sign}${pct}%`;
+            },
+
+            analysisSummary() {
+                const data = this.analysisModal.data;
+                if (!data) return {pr: 0, stagnant: 0, below: 0, total: 0};
+                let pr = 0, stagnant = 0, below = 0;
+                for (const e of data.exercises) {
+                    if (e.is_pr) pr++;
+                    else if (e.is_stagnant) stagnant++;
+                    else if (e.is_below_recent) below++;
+                }
+                return {pr, stagnant, below, total: data.exercises.length};
+            },
+
+            // ===== 月曆 view =====
+            _toLocalISO(d) {
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
+            },
+
+            shiftCalendarMonth(delta) {
+                const d = this.calendarMonth;
+                this.calendarMonth = new Date(d.getFullYear(), d.getMonth() + delta, 1);
+                this.selectedCalendarDate = null;
+            },
+
+            async loadMonthlyAnalytics() {
+                // 由 x-effect 呼叫：calendarMonth / historyView / workouts 變動時自動觸發。
+                if (this.historyView !== 'calendar') return;
+                // 讀取 workouts.length 讓 x-effect 在新增/刪除訓練後重算
+                void this.workouts.length;
+                const year = this.calendarMonth.getFullYear();
+                const month = this.calendarMonth.getMonth() + 1;
+                const key = `${year}-${month}`;
+                if (this._monthlyAnalyticsKey === key && this.monthlyAnalyticsLoading) return;
+                this._monthlyAnalyticsKey = key;
+                this.monthlyAnalyticsLoading = true;
+                try {
+                    this.monthlyAnalytics = await this.api(
+                        'GET', `/analytics/monthly?year=${year}&month=${month}`);
+                } catch (e) {
+                    this.monthlyAnalytics = null;
+                } finally {
+                    this.monthlyAnalyticsLoading = false;
+                }
+            },
+
+            calendarTitle() {
+                const d = this.calendarMonth;
+                return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月`;
+            },
+
+            calendarDays() {
+                const year = this.calendarMonth.getFullYear();
+                const month = this.calendarMonth.getMonth();
+                // 週一起算（getDay: 日=0, 一=1… 六=6）；調成 一=0
+                const firstDay = new Date(year, month, 1);
+                const leading = (firstDay.getDay() + 6) % 7;
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+                // workout 計數：以本地日期歸戶
+                const countByIso = {};
+                for (const w of this.workouts) {
+                    const iso = this._toLocalISO(this.parseServerDate(w.date));
+                    countByIso[iso] = (countByIso[iso] || 0) + w.sets.length;
+                }
+
+                const cells = [];
+                // 前導空白（顯示上月日期）
+                for (let i = leading - 1; i >= 0; i--) {
+                    const d = new Date(year, month, -i);
+                    cells.push({inMonth: false, dayNum: d.getDate(), iso: this._toLocalISO(d), count: 0, isSelected: false});
+                }
+                // 本月
+                for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
+                    const d = new Date(year, month, dayNum);
+                    const iso = this._toLocalISO(d);
+                    cells.push({
+                        inMonth: true,
+                        dayNum,
+                        iso,
+                        count: countByIso[iso] || 0,
+                        isSelected: this.selectedCalendarDate === iso,
+                    });
+                }
+                // 補到 6 x 7 = 42 格
+                while (cells.length % 7 !== 0 || cells.length < 42) {
+                    const nextIdx = cells.length - leading - daysInMonth + 1;
+                    const d = new Date(year, month + 1, nextIdx);
+                    cells.push({inMonth: false, dayNum: d.getDate(), iso: this._toLocalISO(d), count: 0, isSelected: false});
+                    if (cells.length >= 42) break;
+                }
+                return cells;
+            },
+
+            calendarMonthStats() {
+                const year = this.calendarMonth.getFullYear();
+                const month = this.calendarMonth.getMonth();
+                const days = new Set();
+                let sets = 0, volume = 0;
+                for (const w of this.workouts) {
+                    const d = this.parseServerDate(w.date);
+                    if (d.getFullYear() !== year || d.getMonth() !== month) continue;
+                    days.add(this._toLocalISO(d));
+                    sets += w.sets.length;
+                    for (const s of w.sets) {
+                        if (s.weight != null && s.reps != null) volume += s.weight * s.reps;
+                    }
+                }
+                return {days: days.size, sets, volume};
+            },
+
+            visibleWorkouts() {
+                if (this.historyView !== 'calendar') return this.workouts;
+                const year = this.calendarMonth.getFullYear();
+                const month = this.calendarMonth.getMonth();
+                return this.workouts.filter(w => {
+                    const d = this.parseServerDate(w.date);
+                    if (d.getFullYear() !== year || d.getMonth() !== month) return false;
+                    if (this.selectedCalendarDate) {
+                        return this._toLocalISO(d) === this.selectedCalendarDate;
+                    }
+                    return true;
+                });
+            },
+
+            analysisHeadline() {
+                const data = this.analysisModal.data;
+                if (!data) return '';
+                const {pr, stagnant, below, total} = this.analysisSummary();
+                const parts = [];
+                const delta = data.volume_delta_pct;
+                if (delta != null) {
+                    if (delta >= 10) parts.push(`訓練量比上次同肌群多 ${delta}%，狀態不錯`);
+                    else if (delta <= -10) parts.push(`訓練量比上次同肌群少 ${Math.abs(delta)}%，可能疲勞了`);
+                    else parts.push(`訓練量與上次同肌群相當（${this.volumeDeltaLabel(delta)}）`);
+                }
+                if (pr > 0) parts.push(`${pr} 個動作突破 PR 🎉`);
+                if (stagnant > 0) parts.push(`${stagnant} 個動作停滯，可考慮加重`);
+                if (below > 0) parts.push(`${below} 個動作表現低於近期水準`);
+                if (parts.length === 0 && total > 0) {
+                    parts.push('本次沒有特別的進退步訊號，持續累積。');
+                }
+                return parts.join('；');
             },
 
             async deleteWorkout(id) {

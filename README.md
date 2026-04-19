@@ -1,65 +1,45 @@
 # Gym Tracker
 
-個人健身記錄工具。FastAPI + SQLAlchemy + SQLite + Alpine.js。
+個人自用的健身記錄工具。用來取代 Excel 手打組數、重量、次數的流程；手機和電腦都能用，開瀏覽器就上。
 
 ## 功能
 
-- 記錄每次訓練的動作、組數、重量、次數、備註
-- 動作按肌群篩選 / 可標註器材（槓鈴、啞鈴、Cable、器械…）
-- 查看歷史訓練記錄，可展開看細節
-- 單動作進步曲線圖（最大重量 / 總訓練量 / 推估 1RM）
-- 個人最佳成績（PR）徽章
+- 記錄每次訓練的動作、組數、重量、次數、RPE、備註
+- 動作依肌群篩選，同一動作可區分器材（槓鈴 / 啞鈴 / Cable / 器械…）
+- 歷史訓練：列表 + 月曆兩種檢視，月曆點日期可看當日記錄
+- 單動作進步曲線（最大重量 / 總量 / 推估 1RM）、個人最佳成績（PR）徽章
+- **結束訓練分析**：本次 vs 上次同肌群總量、PR / 停滯 / 狀態偏低提示
+- **月度分析**：訓練天數、組數、總量、肌群分布、常練動作、PR、下月建議（肌群平衡、推拉比、頻率等）
+- 組間休息計時器
 - 課表範本（API 已支援，前端待做）
 - JSON 匯出 / 匯入
 
-## 環境需求
+## 技術棧
 
-- Python 3.12
-- Windows / macOS / Linux
+- 後端：FastAPI + SQLAlchemy + SQLite
+- 前端：單一 HTML + Alpine.js + Tailwind（CDN，無 build step）
+- 測試：pytest（記憶體 SQLite、不動到 `gym.db`）
 
-## 第一次啟動
-
-### 1. 建立虛擬環境
+## 啟動
 
 ```bash
-# Windows
+# 1. 建虛擬環境
 python -m venv venv
-venv\Scripts\activate
+venv\Scripts\activate          # Windows
+source venv/bin/activate       # macOS / Linux
 
-# macOS / Linux
-python3 -m venv venv
-source venv/bin/activate
-```
-
-啟動後 terminal 前面會出現 `(venv)`。
-
-### 2. 安裝套件
-
-```bash
+# 2. 安裝
 pip install -r requirements.txt
-```
 
-### 3. 啟動開發伺服器
-
-```bash
+# 3. 啟動
 uvicorn app.main:app --reload
 ```
 
-看到這行就代表成功：
+打開：
+- 前端：<http://127.0.0.1:8000>
+- Swagger：<http://127.0.0.1:8000/docs>
 
-```
-Uvicorn running on http://127.0.0.1:8000
-```
-
-### 4. 打開瀏覽器
-
-- 前端首頁：<http://127.0.0.1:8000>
-- API 文件（Swagger UI）：<http://127.0.0.1:8000/docs>
-- 健康檢查：<http://127.0.0.1:8000/api/health>
-
-## 建議的第一次使用流程
-
-第一次啟動時會自動塞入一份常見動作清單（胸 / 背 / 腿 / 肩 / 手臂 / 核心），直接到「記錄」分頁開始使用即可。想加自己的動作到「動作庫」新增。
+第一次啟動會自動塞一份常見動作清單（胸 / 背 / 腿 / 肩 / 手臂 / 核心）。
 
 ## 測試
 
@@ -67,88 +47,52 @@ Uvicorn running on http://127.0.0.1:8000
 pytest
 ```
 
-測試走記憶體 SQLite、不會動到 `gym.db`；啟動時透過 `GYM_SKIP_SEED=1` 跳過 default seed。
+## 產生假資料
 
-## 資料庫
+想看月度分析 / 結束訓練分析的 Modal，跑：
 
-開發階段用 SQLite，資料存在專案根目錄的 `gym.db`。
+```bash
+python -m scripts.seed_demo
+```
 
-- 用 PyCharm 的 Database 工具可以直接打開看內容
-- 或用 [DB Browser for SQLite](https://sqlitebrowser.org)
-- 備份就是把 `gym.db` 複製走，或用前端「匯出」功能產生 JSON
-
-要換 PostgreSQL 或 MySQL，改 `app/database.py` 裡的 `SQLALCHEMY_DATABASE_URL` 就好。
+會建立上個月 + 本月共 12 筆歷史訓練，以及一筆進行中的今日訓練（含可觸發 PR / 停滯 / 偏低三種 badge 的組數）。
 
 ## 專案結構
 
 ```
 gym-tracker/
 ├── app/
-│   ├── main.py              # FastAPI 入口（含啟動 seed / 輕量 migration）
+│   ├── main.py              # FastAPI 入口（seed + 輕量 migration）
 │   ├── database.py          # DB 連線
 │   ├── models.py            # SQLAlchemy 資料表
-│   ├── schemas.py           # Pydantic 驗證 schemas
+│   ├── schemas.py           # Pydantic 驗證
 │   ├── routers/
 │   │   ├── exercises.py     # /api/exercises（含 history、PR）
-│   │   ├── workouts.py      # /api/workouts（含 set 重新排序）
+│   │   ├── workouts.py      # /api/workouts（含 reorder、分析）
 │   │   ├── routines.py      # /api/routines
+│   │   ├── analytics.py     # /api/analytics（月度分析）
 │   │   └── data.py          # /api/export、/api/import
-│   └── static/
-│       └── index.html       # 前端（單一檔案 + Alpine.js + Tailwind CDN）
-├── tests/                    # pytest
-├── alembic/                  # 資料庫 migration（之後用）
-├── requirements.txt
-├── .gitignore
-└── README.md
+│   └── static/index.html    # 前端（單檔）
+├── scripts/
+│   └── seed_demo.py         # 一次性假資料腳本
+├── tests/                   # pytest
+└── requirements.txt
 ```
 
-## API 一覽
+完整 API 見啟動後的 `/docs`。
 
-動作庫：
+## 資料庫
 
-- `GET    /api/exercises`
-- `POST   /api/exercises`
-- `GET    /api/exercises/{id}`
-- `PATCH  /api/exercises/{id}`
-- `DELETE /api/exercises/{id}`
-- `GET    /api/exercises/{id}/history`（單動作進步曲線資料）
-- `GET    /api/exercises/{id}/prs`（個人最佳成績）
+- 開發階段用 SQLite，資料存在 `gym.db`
+- 想看內容：PyCharm Database 工具 或 [DB Browser for SQLite](https://sqlitebrowser.org)
+- 備份：複製 `gym.db`，或用前端「匯出」產出 JSON
+- 換 PostgreSQL / MySQL：改 `app/database.py` 裡的 `SQLALCHEMY_DATABASE_URL`
 
-訓練記錄：
+目前沒接 Alembic。改 model 後啟動會跑輕量 migration（補欄位、重建 index、重命名舊動作），需要清資料就刪掉 `gym.db` 讓它重建。
 
-- `GET    /api/workouts`
-- `POST   /api/workouts`
-- `GET    /api/workouts/{id}`
-- `PATCH  /api/workouts/{id}`
-- `DELETE /api/workouts/{id}`
-- `POST   /api/workouts/{id}/sets`
-- `DELETE /api/workouts/{id}/sets/{set_id}`
-- `POST   /api/workouts/{id}/sets/reorder`
+## Roadmap
 
-課表範本：
-
-- `GET    /api/routines`
-- `POST   /api/routines`
-- `GET    /api/routines/{id}`
-- `DELETE /api/routines/{id}`
-
-資料匯出 / 匯入：
-
-- `GET    /api/export`
-- `POST   /api/import`
-
-完整 API 文件自動在 `/docs`。
-
-## 之後要做的事（roadmap）
-
-- [ ] 前端加上「從課表開始訓練」流程
-- [ ] 部署到 Railway
-- [ ] 換成 PostgreSQL
-- [ ] 加上簡易登入（多裝置同步自用資料）
-- [ ] 改用 Alembic 管 migration（目前用 `create_all` + 手動 ALTER 偷懶）
-
-## 開發提示
-
-- `--reload` 參數讓你改 code 自動重啟，不用手動
-- 改 models 後 SQLite 不會自動同步，最簡單就是刪掉 `gym.db` 讓它重建（開發階段沒關係）；若已有正式資料，寫個一次性 `ALTER TABLE` 小函式在啟動時跑過一次
-- 之後正式上線前要導入 Alembic 做 migration
+- [ ] 前端「從課表開始訓練」流程
+- [ ] 部署到 Railway + PostgreSQL
+- [ ] 簡易登入（多裝置同步）
+- [ ] 導入 Alembic

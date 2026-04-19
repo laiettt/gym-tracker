@@ -153,6 +153,67 @@ class ExercisePR(BaseModel):
     best_1rm: Optional[ExercisePREntry] = None      # 推估 1RM 最高的那組
 
 
+# ========== 結束訓練的分析 ==========
+class ExerciseAnalysis(BaseModel):
+    """單一動作的本次表現與近期趨勢。"""
+    exercise_id: int
+    exercise_name: str
+    today_max_weight: Optional[float] = None
+    today_max_weight_reps: Optional[int] = None
+    previous_max_weight: Optional[float] = None  # 此次以前該動作的歷史最大重量
+    is_pr: bool = False
+    is_stagnant: bool = False     # 連續 3+ 次同重量，建議漸進加重
+    is_below_recent: bool = False  # 今日最大重量低於近 3 次
+    suggestion: Optional[str] = None  # 彙整一句話給前端直接顯示
+
+
+class WorkoutAnalysis(BaseModel):
+    workout_id: int
+    date: datetime
+    total_volume: float
+    total_sets: int
+    total_reps: int
+    muscle_groups: List[str]
+    previous_same_group_volume: Optional[float] = None
+    volume_delta_pct: Optional[float] = None  # (today - prev) / prev * 100
+    exercises: List[ExerciseAnalysis] = []
+
+
+# ========== 月度分析 ==========
+class MonthlyMuscleGroup(BaseModel):
+    category: str
+    sets_count: int
+    volume: float
+    percentage: float  # 佔總量百分比
+
+
+class MonthlyTopExercise(BaseModel):
+    exercise_id: int
+    exercise_name: str
+    sets_count: int
+    total_volume: float
+    max_weight: Optional[float] = None
+
+
+class MonthlyAnalytics(BaseModel):
+    year: int
+    month: int
+    is_current_month: bool  # 當月還沒結束時為 True，前端標示「本月進度」
+    training_days: int
+    total_workouts: int
+    total_sets: int
+    total_reps: int
+    total_volume: float
+    avg_duration_minutes: Optional[float] = None
+    muscle_groups: List[MonthlyMuscleGroup] = []
+    top_exercises: List[MonthlyTopExercise] = []
+    pr_count: int = 0
+    pr_exercise_names: List[str] = []
+    prev_month_total_volume: Optional[float] = None
+    volume_delta_pct: Optional[float] = None  # vs 上個月
+    suggestions: List[str] = []  # 下月建議（由後端根據資料產生）
+
+
 # ========== 資料匯出 / 匯入 ==========
 class ExportWorkoutSet(BaseModel):
     exercise_name: str

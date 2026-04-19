@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import models
 from app.database import SessionLocal, engine
-from app.routers import exercises, workouts, routines, data
+from app.routers import exercises, workouts, routines, data, analytics
 
 # 建立資料表（開發階段用，正式環境會用 Alembic migration）
 models.Base.metadata.create_all(bind=engine)
@@ -28,27 +28,98 @@ def _ensure_exercise_equipment_column() -> None:
             conn.execute(text("ALTER TABLE exercises ADD COLUMN equipment VARCHAR(50)"))
 
 
+#: 早期把器材寫進動作名稱（"槓鈴臥推"），現在改成 name + equipment 兩欄分開。
+#: 此表僅處理預設動作；使用者自訂動作不動。
+_LEGACY_NAME_RENAMES: dict[str, str] = {
+    "槓鈴臥推": "臥推",
+    "啞鈴臥推": "臥推",
+    "上斜槓鈴臥推": "上斜臥推",
+    "上斜啞鈴臥推": "上斜臥推",
+    "蝴蝶機夾胸": "夾胸",
+    "Cable 夾胸": "夾胸",
+    "槓鈴划船": "划船",
+    "啞鈴單手划船": "單手划船",
+    "啞鈴肩推": "肩推",
+    "槓鈴彎舉": "二頭彎舉",
+}
+
+
+def _migrate_exercise_schema() -> None:
+    """處理動作庫兩項結構變更：
+
+    1. 移除 exercises.name 上的單欄 unique index（改用 (name, equipment) 複合）。
+    2. 把舊的「器材混在名稱裡」動作重新命名（例：槓鈴臥推 → 臥推）。
+    """
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        # 移除舊的 name unique index（SQLAlchemy 生成的名稱為 ix_exercises_name）
+        for idx in inspector.get_indexes("exercises"):
+            if idx["column_names"] == ["name"] and idx.get("unique"):
+                conn.execute(text(f'DROP INDEX IF EXISTS "{idx["name"]}"'))
+        # 重建普通索引（非 unique）方便查詢
+        existing_idx_names = {i["name"] for i in inspector.get_indexes("exercises")}
+        if "ix_exercises_name" not in existing_idx_names:
+            conn.execute(text('CREATE INDEX IF NOT EXISTS ix_exercises_name ON exercises(name)'))
+        # 複合 unique（SQLite 多筆 NULL equipment 視為不同，符合我們需求）
+        conn.execute(text(
+            'CREATE UNIQUE INDEX IF NOT EXISTS uq_exercise_name_equipment '
+            'ON exercises(name, equipment)'
+        ))
+
+        # 重命名舊預設動作
+        for old_name, new_name in _LEGACY_NAME_RENAMES.items():
+            row = conn.execute(
+                text("SELECT id, equipment FROM exercises WHERE name = :n"),
+                {"n": old_name},
+            ).first()
+            if not row:
+                continue
+            # 若新名稱 + 同器材已存在，直接刪掉舊的（避免 unique 衝突）
+            existing = conn.execute(
+                text("SELECT id FROM exercises WHERE name = :n AND equipment IS :e"),
+                {"n": new_name, "e": row.equipment},
+            ).first()
+            if existing:
+                # 把引用舊 id 的 set 轉移到新 id
+                conn.execute(
+                    text("UPDATE sets SET exercise_id = :new WHERE exercise_id = :old"),
+                    {"new": existing.id, "old": row.id},
+                )
+                conn.execute(
+                    text("UPDATE routine_exercises SET exercise_id = :new WHERE exercise_id = :old"),
+                    {"new": existing.id, "old": row.id},
+                )
+                conn.execute(text("DELETE FROM exercises WHERE id = :id"), {"id": row.id})
+            else:
+                conn.execute(
+                    text("UPDATE exercises SET name = :n WHERE id = :id"),
+                    {"n": new_name, "id": row.id},
+                )
+
+
 _ensure_exercise_equipment_column()
+_migrate_exercise_schema()
 
 
 #: 常見健身動作的預設清單：(name, category, equipment)。
 #: 新增動作時若同名已存在只會補 equipment，不會覆蓋使用者自訂的分類。
 DEFAULT_EXERCISES: list[tuple[str, str, str | None]] = [
     # 胸
-    ("槓鈴臥推", "胸", "槓鈴"),
-    ("上斜槓鈴臥推", "胸", "槓鈴"),
-    ("啞鈴臥推", "胸", "啞鈴"),
-    ("上斜啞鈴臥推", "胸", "啞鈴"),
-    ("蝴蝶機夾胸", "胸", "器械"),
-    ("Cable 夾胸", "胸", "Cable"),
+    ("臥推", "胸", "槓鈴"),
+    ("臥推", "胸", "啞鈴"),
+    ("上斜臥推", "胸", "槓鈴"),
+    ("上斜臥推", "胸", "啞鈴"),
+    ("夾胸", "胸", "器械"),
+    ("夾胸", "胸", "Cable"),
     ("雙槓撐體", "胸", "自重"),
     ("伏地挺身", "胸", "自重"),
     # 背
     ("硬舉", "背", "槓鈴"),
     ("引體向上", "背", "自重"),
     ("滑輪下拉", "背", "Cable"),
-    ("槓鈴划船", "背", "槓鈴"),
-    ("啞鈴單手划船", "背", "啞鈴"),
+    ("划船", "背", "槓鈴"),
+    ("單手划船", "背", "啞鈴"),
     ("坐姿划船", "背", "Cable"),
     ("T 槓划船", "背", "器械"),
     ("聳肩", "背", "啞鈴"),
@@ -63,13 +134,13 @@ DEFAULT_EXERCISES: list[tuple[str, str, str | None]] = [
     ("小腿舉踵", "腿", "器械"),
     # 肩
     ("肩推", "肩", "槓鈴"),
-    ("啞鈴肩推", "肩", "啞鈴"),
+    ("肩推", "肩", "啞鈴"),
     ("側平舉", "肩", "啞鈴"),
     ("前平舉", "肩", "啞鈴"),
     ("反向飛鳥", "肩", "器械"),
     ("臉拉", "肩", "Cable"),
     # 手臂
-    ("槓鈴彎舉", "手臂", "槓鈴"),
+    ("二頭彎舉", "手臂", "槓鈴"),
     ("二頭彎舉", "手臂", "啞鈴"),
     ("錘式彎舉", "手臂", "啞鈴"),
     ("三頭下壓", "手臂", "Cable"),
@@ -80,8 +151,6 @@ DEFAULT_EXERCISES: list[tuple[str, str, str | None]] = [
     ("腹肌捲腹", "核心", "自重"),
     ("平板支撐", "核心", "自重"),
     ("懸吊舉腿", "核心", "自重"),
-    # 舊版已存在但沒有 equipment（保留名稱不動，留空待使用者自己填）
-    ("臥推", "胸", None),
 ]
 
 
@@ -96,16 +165,14 @@ def _seed_default_exercises() -> None:
         return
     db = SessionLocal()
     try:
-        existing = {e.name: e for e in db.query(models.Exercise).all()}
+        # 以 (name, equipment) 當 key：同名但器材不同視為不同變體
+        existing = {(e.name, e.equipment): e for e in db.query(models.Exercise).all()}
         changed = False
         for name, category, equipment in DEFAULT_EXERCISES:
-            ex = existing.get(name)
-            if ex is None:
-                db.add(models.Exercise(name=name, category=category, equipment=equipment))
-                changed = True
-            elif equipment and not ex.equipment:
-                ex.equipment = equipment
-                changed = True
+            if (name, equipment) in existing:
+                continue
+            db.add(models.Exercise(name=name, category=category, equipment=equipment))
+            changed = True
         if changed:
             db.commit()
     finally:
@@ -134,6 +201,7 @@ app.include_router(exercises.router)
 app.include_router(workouts.router)
 app.include_router(routines.router)
 app.include_router(data.router)
+app.include_router(analytics.router)
 
 
 # ========== 前端靜態檔案 ==========
