@@ -32,7 +32,7 @@
 | 資料庫 | SQLite（開發）/ PostgreSQL（部署） |
 | 前端 | Alpine.js + Tailwind CSS（CDN，無 build step）、Chart.js |
 | 測試 | pytest（記憶體 SQLite） |
-| 部署 | Railway（支援 Heroku 相容 Procfile） |
+| 部署 | Render（Web Service）+ Neon（Serverless Postgres） |
 
 ## 快速開始
 
@@ -111,19 +111,51 @@ gym-tracker/
 - 備份：直接複製 `gym.db`，或透過前端「匯出」產出 JSON
 - Schema 異動：目前採用 `create_all` 搭配啟動時輕量 migration（補欄位、重建索引、合併舊動作名稱）；正式導入 Alembic 列於 Roadmap
 
-## 部署（Railway）
+## 部署（Render + Neon）
 
-1. 於 Railway 建立 Project，透過 GitHub 匯入此 repo
-2. 於同一 Project 新增 **PostgreSQL** 服務；Railway 會自動將 `DATABASE_URL` 注入 web service
-3. 於 web service 的 **Variables** 設定：
-   - `DATABASE_URL` — 引用 Postgres 服務（或貼 `DATABASE_PUBLIC_URL` 的值）
-   - `GYM_USERNAME`、`GYM_PASSWORD` — 啟用 HTTP Basic Auth（強烈建議）
-   - `ALLOWED_ORIGINS` — CORS 白名單（可選）
-4. 觸發部署；Railway 依 `Procfile` 啟動 `uvicorn`
+採用免費組合：Render 提供 Web Service、Neon 提供 Serverless PostgreSQL，兩者皆有永久免費方案可承載單人自用流量。
 
-遷移本地資料：前端「匯出」下載 JSON → 在部署站點「匯入」。
+### 1. 建立資料庫（Neon）
+
+1. 於 [Neon](https://neon.tech) 註冊並建立 Project
+2. Region 建議選 **AWS Asia Pacific 1 (Singapore)**（延遲較低）
+3. 複製 **Connection string**（格式：`postgresql://user:pass@ep-xxx.neon.tech/dbname?sslmode=require`）
+
+### 2. 建立 Web Service（Render）
+
+1. 於 [Render](https://render.com) 選擇 **New → Web Service**，連結 GitHub repo
+2. 基本設定：
+
+   | 欄位 | 值 |
+   |---|---|
+   | Region | Singapore |
+   | Branch | `main` |
+   | Build Command | `pip install -r requirements.txt` |
+   | Start Command | `uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+   | Instance Type | Free |
+
+3. 環境變數：
+
+   | Key | Value |
+   |---|---|
+   | `DATABASE_URL` | Neon connection string |
+   | `GYM_USERNAME` | HTTP Basic Auth 帳號 |
+   | `GYM_PASSWORD` | HTTP Basic Auth 密碼 |
+   | `PYTHON_VERSION` | `3.12.7` |
+   | `ALLOWED_ORIGINS` | 前端網域（可選，用於限制 CORS） |
+
+4. 送出後 Render 會自動 build & deploy，後續每次 push 到 `main` 皆會觸發自動部署
+
+### 3. 資料遷移
+
+前端「匯出」下載 JSON → 於新環境前端「匯入」。
 
 完整環境變數清單見 `.env.example`。
+
+### Free Tier 注意事項
+
+- **Render Free Web Service** 會在閒置 15 分鐘後休眠；下次請求會有約 30 秒冷啟動
+- **Neon Free Tier** 提供 0.5 GB 儲存與 191.9 CU-小時/月，個人自用量通常遠低於上限
 
 ## 安全性
 
