@@ -30,7 +30,15 @@ _connect_args: dict = {}
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
     _connect_args["check_same_thread"] = False
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args=_connect_args)
+# pool_pre_ping：借連線前先 ping，避免拿到 Neon 砍掉的閒置連線（症狀是訓練
+# 中途隔幾分鐘按下一組會跳 Request failed，重按一次又通）。
+# pool_recycle=300：連線超過 5 分鐘強制回收，搭配 pre_ping 雙保險。
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    connect_args=_connect_args,
+    pool_pre_ping=True,
+    pool_recycle=300,
+)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
