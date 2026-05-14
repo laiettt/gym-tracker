@@ -11,6 +11,23 @@ from app.models import _utcnow_naive
 router = APIRouter(prefix="/api/workouts", tags=["workouts"])
 
 
+def _renumber_sets_for_exercise(db: Session, workout_id: int, exercise_id: int) -> None:
+    """把同 workout、同動作下的 set 依目前 set_number, id 排序後重編 1..N。
+
+    這是 set_number 的權威來源：add / delete / reorder 完都要呼叫，
+    確保「第 N 組」永遠連續、無重號。
+    """
+    sets = (
+        db.query(models.WorkoutSet)
+        .filter_by(workout_id=workout_id, exercise_id=exercise_id)
+        .order_by(models.WorkoutSet.set_number, models.WorkoutSet.id)
+        .all()
+    )
+    for i, s in enumerate(sets, start=1):
+        if s.set_number != i:
+            s.set_number = i
+
+
 @router.get("", response_model=List[schemas.Workout])
 def list_workouts(
     limit: int = Query(50, ge=1, le=500),
@@ -95,12 +112,24 @@ def add_set_to_workout(
     payload: schemas.WorkoutSetCreate,
     db: Session = Depends(get_db),
 ):
-    """在既有的 workout 加一組記錄。"""
+    """在既有的 workout 加一組記錄。
+
+    set_number 由後端依「此動作在此 workout 已有幾組」決定，
+    忽略 payload.set_number，避免前端在刪除/拖曳後算錯而出現跳號或重號。
+    """
     workout = db.get(models.Workout, workout_id)
     if not workout:
         raise HTTPException(status_code=404, detail="Workout not found")
 
-    workout_set = models.WorkoutSet(workout_id=workout_id, **payload.model_dump())
+    existing_count = (
+        db.query(models.WorkoutSet)
+        .filter_by(workout_id=workout_id, exercise_id=payload.exercise_id)
+        .count()
+    )
+    data = payload.model_dump()
+    data["set_number"] = existing_count + 1
+
+    workout_set = models.WorkoutSet(workout_id=workout_id, **data)
     db.add(workout_set)
     db.commit()
     db.refresh(workout_set)
@@ -113,15 +142,26 @@ def reorder_sets(
     payload: schemas.ReorderSetsRequest,
     db: Session = Depends(get_db),
 ):
-    """依 payload.set_ids 的順序重設 set_number（從 1 開始）。"""
+    """依 payload.set_ids 的相對順序，每個動作各自重編 set_number 1..N。
+
+    set_number 是「此動作的第 N 組」而非「此 workout 的第 N 組」，所以即使
+    前端是把不同動作混在一起拖曳，後端只看同動作 set 之間的相對順序，
+    跨動作不互相影響。
+    """
     workout = db.get(models.Workout, workout_id)
     if not workout:
         raise HTTPException(status_code=404, detail="Workout not found")
     existing = {s.id: s for s in workout.sets}
     if set(existing.keys()) != set(payload.set_ids):
         raise HTTPException(status_code=400, detail="set_ids 必須涵蓋此 workout 所有 set")
-    for i, sid in enumerate(payload.set_ids, start=1):
-        existing[sid].set_number = i
+
+    # 依拖曳後的相對順序，把同動作 set 依序給 1, 2, 3...
+    per_exercise_counter: dict[int, int] = {}
+    for sid in payload.set_ids:
+        s = existing[sid]
+        per_exercise_counter[s.exercise_id] = per_exercise_counter.get(s.exercise_id, 0) + 1
+        s.set_number = per_exercise_counter[s.exercise_id]
+
     db.commit()
     db.refresh(workout)
     return workout
@@ -260,5 +300,9 @@ def delete_set(workout_id: int, set_id: int, db: Session = Depends(get_db)):
     )
     if not workout_set:
         raise HTTPException(status_code=404, detail="Set not found")
+    exercise_id = workout_set.exercise_id
     db.delete(workout_set)
+    db.flush()
+    # 刪掉後把同動作剩下的 set 重編，避免「#2 #2 #3」這種跳號
+    _renumber_sets_for_exercise(db, workout_id, exercise_id)
     db.commit()

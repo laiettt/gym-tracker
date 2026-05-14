@@ -1330,8 +1330,20 @@
 
             async deleteSet(setId) {
                 try {
+                    const removed = this.currentWorkout.sets.find(s => s.id === setId);
                     await this.api('DELETE', `/workouts/${this.currentWorkout.id}/sets/${setId}`);
                     this.currentWorkout.sets = this.currentWorkout.sets.filter(s => s.id !== setId);
+                    // 後端會把同動作 set_number 重編成連續，本地端也跟著重編，
+                    // 避免下一次 addSet 用 length+1 算出已存在的編號。
+                    if (removed) {
+                        let n = 0;
+                        for (const s of this.currentWorkout.sets) {
+                            if (s.exercise_id === removed.exercise_id) {
+                                n += 1;
+                                s.set_number = n;
+                            }
+                        }
+                    }
                     this.showToast('已刪除');
                 } catch (e) {
                     this.showToast('錯誤：' + e.message);

@@ -97,7 +97,10 @@ class Workout(Base):
         "WorkoutSet",
         back_populates="workout",
         cascade="all, delete-orphan",
-        order_by="WorkoutSet.set_number",
+        # 用 id（插入順序）排序：set_number 是「該動作的第 N 組」per-exercise，
+        # 跨動作會重複，不適合當顯示順序；拖曳排序透過 reorder API 改變 id 以外
+        # 的 set_number 不會影響這邊的顯示順序。
+        order_by="WorkoutSet.id",
     )
 
 
